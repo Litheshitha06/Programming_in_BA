@@ -1,0 +1,779 @@
+---
+title: "Programming_Group 15"
+output: pdf_document
+date: "2024-12-03"
+---
+
+```{r}
+#install necessary libraries
+
+# install.packages("sf")           # Similar to geopandas for spatial data handling
+# install.packages("tmap")         # Similar to geopandas visualization
+# install.packages("plotly")       # Interactive visualizations
+# install.packages("caret")        # For machine learning workflow
+# install.packages("randomForest") # For Random Forest Classifier
+# install.packages("xgboost")      # For XGBoost Classifier
+# install.packages("e1071")        # For Naive Bayes
+# install.packages("nnet") 
+#install.packages("confusionMatrix")
+```
+```{r}
+# Loading libraries
+options(warn = -1)               # remove warnings
+library(sf)               # for Spatial data handling
+library(ggplot2)          # DV
+library(tmap)             # Spatial data visualization
+library(dplyr)            # similar to pandas
+library(plotly)           # Interactive plots
+library(caret)            # Machine learning
+library(randomForest)     
+library(xgboost)          
+library(e1071)            # Naive Bayes
+library(nnet)             # Neural Networks
+# Additional libraries for metrics and model evaluation
+library(MASS)             # For Logistic Regression and other statistical models
+library(pROC)             # For ROC curve
+```
+
+```{r}
+# Reading the CSV file
+telco_customer <- read.csv("C://Users//Ashish//Downloads//Telco-Customer-Churn_Ward.csv")
+
+# Reading the shapefile
+ward <- st_read("C://Users//Ashish//Downloads//Wards.shp")
+```
+
+```{r}
+# showing first 5 values of dataset
+telco_customer%>%head(5)
+```
+
+```{r}
+# checking the dimensions of the dataset
+shape <- dim(telco_customer)
+
+# Print the number of rows and columns
+print(paste("Rows:", shape[1], "Columns:", shape[2]))
+```
+
+```{r}
+#checking the structure of the dataset
+str(telco_customer)
+```
+
+```{r}
+# check the class of each column in dataset
+col_types <- sapply(telco_customer, class)
+
+# Print the result
+print(col_types)
+
+```
+
+```{r}
+# storing values of columns in col_nam_1
+col_nam_1 <- colnames(telco_customer)
+
+# Print the column names
+print(col_nam_1)
+
+```
+
+```{r}
+#checking first 5 values of shapefile
+ward %>% head(5)
+```
+
+```{r}
+# Plotting the geospatial data
+ggplot(data = ward) +
+  geom_sf(aes(fill = NAME), color = "black") +  # Plot shapefile with fill based on 'NAME' column
+  geom_text(data = st_centroid(ward),          # Annotate using centroid of geometries
+            aes(x = st_coordinates(geometry)[,1], 
+                y = st_coordinates(geometry)[,2], 
+                label = NAME), 
+            size = 3, color = "black", hjust = 0.5) +
+  theme_minimal() +                            # Minimal theme for better appearance
+  theme(axis.title = element_blank(),          # Remove axis titles
+        axis.text = element_blank(),           # Remove axis text
+        axis.ticks = element_blank())          # Remove axis ticks
+```
+
+```{r}
+# Filter customers who have churned
+churned_customer <- telco_customer[telco_customer$Churn == "Yes", ]
+
+# Aggregate churned customers by Ward_Name and Ward_ID
+churned_customer <- churned_customer %>%
+  group_by(Ward_Name, Ward_ID) %>%
+  summarise(customer_churned = n()) %>%
+  ungroup()
+
+# View the resulting data frame
+head(churned_customer, 5)
+
+```
+
+```{r}
+library(dplyr)
+# Merge the customer data (churned_customer) with the geographical data (ward)
+telco_customer_w_ward <- ward %>%
+  left_join(churned_customer, by = c("WARD_ID" = "Ward_ID"))
+
+# Drop the 'WARD_ID' column if not needed
+telco_customer_w_ward <- telco_customer_w_ward %>%
+  dplyr::select(-WARD_ID)
+
+print(telco_customer_w_ward, 5)
+
+```
+
+```{r}
+# Ensure the data has a proper sf structure
+telco_customer_w_ward <- st_as_sf(telco_customer_w_ward)
+
+# Plot the map with color-coded zones based on churned customers
+ggplot(data = telco_customer_w_ward) +
+  geom_sf(aes(fill =customer_churned), color = "black", size = 0.5) +  # Color zones by 'customer_churned'
+  scale_fill_distiller(palette = "RdYlGn", direction = 1, name = "Churned Customers") +  
+  geom_text(data = st_centroid(telco_customer_w_ward),  # Add ward names at centroid positions
+            aes(x = st_coordinates(geometry)[,1], 
+                y = st_coordinates(geometry)[,2], 
+                label = NAME), 
+            size = 3, color = "black", hjust = 0.5) +
+  theme_minimal() +
+  theme(axis.title = element_blank(),  
+        axis.text = element_blank(),  
+        axis.ticks = element_blank(),  
+        legend.position = "right") 
+```
+
+```{r}
+# Top 3 wards with the highest churned customers
+Top_3_churned <- telco_customer_w_ward %>%
+  arrange(desc(customer_churned)) %>%  # Sort by customer_churned in descending order
+  head(3) # Select top 3 rows
+
+# Bottom 3 wards with the lowest churned customers
+bottom_3_churned <- telco_customer_w_ward %>%
+  arrange(customer_churned)  %>%        # Sort by customer_churned in ascending order
+  head(3)                    # Select top 3 rows from ascending order
+
+# Display the top 3 churned wards
+head(Top_3_churned, 3)
+
+```
+
+```{r}
+head(bottom_3_churned, 3)
+```
+
+```{r}
+ggplot(data = telco_customer, aes(x = tenure, fill = Churn)) +
+  geom_histogram(aes(y = ..density..), bins = 30, alpha = 0.7, position = "identity") +
+  geom_density(alpha = 0.2, color = "black") +  # Add density curve
+  scale_fill_manual(values = c("green", "red")) +  # Set colors for churn status
+  labs(title = "Tenure Distribution by Churn Status",
+       x = "Tenure (Months)",
+       y = "Density") +
+  theme_minimal(base_size = 14)
+
+```
+
+```{r}
+# Create the bar plot
+ggplot(data = telco_customer, aes(x = InternetService, fill = Churn)) +
+  geom_bar(position = "dodge", color = "black") +  # Dodged bars for comparison
+  geom_text(stat = "count", aes(label = ..count..), position = position_dodge(width = 0.9), vjust = -0.5, size = 3) +
+  scale_fill_manual(values = c("green", "red")) +  # Set colors for Churn categories
+  labs(title = "Churn Distribution by Internet Service Type",
+       x = "Internet Service Type",
+       y = "Count") +
+  theme_minimal(base_size = 14)
+```
+
+
+```{r}
+churned_customer <- telco_customer[telco_customer$Churn == "Yes", c("tenure", "MonthlyCharges", "Contract")]
+# Create the scatter plot
+ggplot(data = churned_customer, aes(x = tenure, y = MonthlyCharges, color = Contract, shape = Contract)) +
+  geom_point(size = 3, alpha = 0.7) +  # Add scatter points
+  labs(title = "Tenure vs. Monthly Charges by Contract Type",
+       x = "Tenure (Months)",
+       y = "Monthly Charges") +
+  theme_minimal(base_size = 14)   # Apply minimal theme
+
+
+# # Recreate `churned_customer` to ensure it has the required columns
+# churned_customer <- telco_customer[telco_customer$Churn == "Yes", c("tenure", "MonthlyCharges", "Contract")]
+# 
+# # Plot the scatter plot
+# ggplot(data = churned_customer, aes(x = tenure, y = MonthlyCharges, color = Contract, shape = Contract)) +
+#   geom_point(size = 3, alpha = 0.7) +  # Add scatter points
+#   labs(title = "Tenure vs. Monthly Charges by Contract Type",
+#        x = "Tenure (Months)",
+#        y = "Monthly Charges") +
+#   theme_minimal(base_size = 14)   # Apply minimal theme
+
+  
+```
+
+```{r}
+# Create the bar plot for PaymentMethod and Churn
+ggplot(data = telco_customer, aes(x = PaymentMethod, fill = Churn)) +
+  geom_bar(position = "dodge", color = "black") +  # Grouped bar chart
+  geom_text(stat = "count", aes(label = ..count..), 
+            position = position_dodge(width = 0.9), vjust = -0.5, size = 3) +  # Add data labels
+  scale_fill_manual(values = c("green", "red")) +  # Set custom colors for Churn categories
+  labs(title = "Churn Distribution by Payment Method",
+       x = "Payment Method",
+       y = "Count") +
+  theme_minimal(base_size = 14) 
+```
+
+```{r}
+# Aggregate data: Sum of 'Customer service calls' by 'Churn' and 'tenure'
+service_churn <- telco_customer %>%
+  group_by(Churn, tenure) %>%
+  summarise(Customer_service_calls = sum(`Customer.service.calls`, na.rm = TRUE)) %>%
+  ungroup()
+
+# Scatter plot: Tenure vs Customer Service Calls by Churn
+ggplot(data = service_churn, aes(x = tenure, y = Customer_service_calls, color = Churn)) +
+  geom_point(size = 3, alpha = 0.7) +  # Add scatter points
+  scale_color_manual(values = c("green", "red")) +  # Custom color palette for Churn
+  labs(title = "Tenure vs. Customer Service Calls",
+       x = "Tenure (Months)",
+       y = "Customer Service Calls",
+       color = "Churn") + theme(plot.title = element_text(hjust = 0.5),  # Center the title
+        legend.position = "top",  # Place legend at the top
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 10))+theme_minimal(base_size = 14) + 
+  guides(color = guide_legend(ncol = 2, title.position = "top"))
+```
+# DATA MANIPULATION
+```{r}
+# Drop the 'customerID' column
+telco_customer <- telco_customer[, !names(telco_customer) %in% "customerID"]
+
+# View column names
+colnames(telco_customer)
+```
+
+```{r}
+# Convert 'TotalCharges' to numeric (coerce errors to NA)
+telco_customer$TotalCharges <- as.numeric(telco_customer$TotalCharges)
+
+# Check for missing values in the data frame
+missing_values <- colSums(is.na(telco_customer))
+
+# Display the result
+print(missing_values)
+```
+
+```{r}
+# Filter rows where tenure is 0 and TotalCharges is NA
+tenure_na_rows <- telco_customer[is.na(telco_customer$TotalCharges) & telco_customer$tenure == 0, ]
+
+# Display the filtered rows
+print(tenure_na_rows)
+```
+
+```{r}
+mean_total_charges <- mean(telco_customer$TotalCharges, na.rm = TRUE) # calculate the mean value
+print(mean_total_charges)
+```
+
+```{r}
+telco_customer$TotalCharges[is.na(telco_customer$TotalCharges)] <- mean_total_charges
+print(telco_customer$TotalCharges)
+```
+
+```{r}
+missing_values <- colSums(is.na(telco_customer)) #checking null values in each column
+print(missing_values)
+```
+
+```{r}
+library(reshape2)
+# Factorize non-numeric columns to numeric
+factorized_data <- telco_customer
+factorized_data[] <- lapply(factorized_data, function(x) {
+  if (is.factor(x) || is.character(x)) as.numeric(as.factor(x)) else x
+})
+
+# Calculate the correlation matrix
+corr_matrix <- cor(factorized_data, use = "complete.obs")
+
+# Mask the upper triangle (optional, to mimic the mask in Python)
+corr_matrix[upper.tri(corr_matrix)] <- NA
+
+# Melt the correlation matrix for ggplot2
+melted_corr <- melt(corr_matrix, na.rm = TRUE)
+
+# Plot the heatmap
+ggplot(data = melted_corr, aes(Var1, Var2, fill = value)) +
+  geom_tile(color = "white") +  # Heatmap tiles with white borders
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0, 
+                       limit = c(-1, 1), space = "Lab", name = "Correlation") +
+  labs(title = "Correlation Heatmap", x = "", y = "") +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+```
+
+# Data Preprocessing
+```{r}
+# Function to encode character or factor columns into integers
+object_to_int <- function(column) {
+  if (is.character(column) || is.factor(column)) {
+    as.numeric(as.factor(column)) - 1  # Encode and subtract 1 to start from 0
+  } else {
+    column  # Keep other columns unchanged
+  }
+}
+
+# Apply the encoding to all columns in the data frame
+telco_customer <- telco_customer %>%
+  mutate(across(everything(), object_to_int))
+
+# View the updated data frame
+head(telco_customer, 5)
+```
+
+```{r}
+# Ensure the Churn column is numeric
+telco_customer$Churn <- as.numeric(as.factor(telco_customer$Churn)) - 1  # Encode Churn as 0 and 1
+
+# Compute the correlation matrix
+correlation_matrix <- cor(telco_customer, use = "complete.obs")
+
+# Extract and sort correlations with Churn
+churn_correlation <- sort(correlation_matrix[, "Churn"], decreasing = TRUE)
+
+# Display the correlations
+print(churn_correlation)
+```
+
+```{r}
+# install.packages("car")
+# install.packages("psych")
+#library(car)
+# Splitting the data into features (X) and target (y)
+# Splitting the data into features (X) and target (y)
+X <- telco_customer %>% dplyr::select(-Churn)  # Drop Churn column
+y <- telco_customer$Churn  # Target variable
+
+# Splitting into train and test sets
+set.seed(40)
+train_index <- createDataPartition(y, p = 0.7, list = FALSE)  # Stratified split
+X_train <- X[train_index, ]
+X_test <- X[-train_index, ]
+y_train <- y[train_index]
+y_test <- y[-train_index]
+
+# Variance Inflation Factor (VIF) for multicollinearity
+# Combine X and y into one data frame for VIF analysis
+df_scaled <- as.data.frame(scale(X))  # Standardize the features
+
+# Calculate VIF for each column and store results
+vif_values <- sapply(df_scaled, function(column) {
+  model <- lm(column ~ ., data = df_scaled)
+  return(vif(model)[1])  # Extract first element (VIF for the column)
+})
+
+# Create VIF data frame
+vif_data <- data.frame(
+  Feature = colnames(df_scaled),
+  VIF = vif_values
+)
+
+# Sort VIF results by descending order
+vif_data <- arrange(vif_data, desc(VIF))
+
+print(vif_data)
+```
+
+```{r}
+# Feature selection
+# Feature selection
+selected_features <- c("tenure", "MonthlyCharges", "Customer.service.calls")
+
+# Standardization for selected features
+scaler <- preProcess(X_train[, selected_features], method = c("center", "scale"))
+X_train[, selected_features] <- predict(scaler, X_train[, selected_features])
+X_test[, selected_features] <- predict(scaler, X_test[, selected_features])
+
+# Check results
+head(X_train, 5)
+head(X_test, 5)
+
+```
+
+#Decision Tree
+```{r}
+library(rpart)
+# Build the Decision Tree model
+dt_model <- rpart(y_train ~ ., data = cbind(X_train, y_train), method = "class")
+
+# Predict on the test set
+predictdt_y <- predict(dt_model, X_test, type = "class")
+
+# Calculate accuracy
+accuracy_dt <- mean(predictdt_y == y_test)
+
+# Print the accuracy
+print(paste("Decision Tree accuracy is:", accuracy_dt, "\n"))
+```
+
+```{r}
+# Initialize and fit the Decision Tree model
+dt_model <- rpart(y_train ~ ., data = cbind(X_train, y_train), method = "class")
+
+# Predict on the test set
+predictdt_y <- predict(dt_model, X_test, type = "class")
+
+# Check the shapes
+print(paste("y_test length:", length(y_test), "\n"))
+print(paste("predictdt_y length:", length(predictdt_y), "\n"))
+
+# Plot the confusion matrix
+if (length(y_test) == length(predictdt_y)) {
+  # Create the confusion matrix
+  cm <- confusionMatrix(factor(predictdt_y), factor(y_test), positive = "1")  # Assuming "1" is the positive class
+  
+  # Display confusion matrix
+  print(cm)
+
+  # Create a heatmap of the confusion matrix
+  cm_table <- as.data.frame(cm$table)
+  ggplot(data = cm_table, aes(x = Prediction, y = Reference, fill = Freq)) +
+    geom_tile(color = "black") +
+    geom_text(aes(label = Freq), color = "white", size = 5) +
+    scale_fill_gradient(low = "blue", high = "red") +
+    labs(title = "Confusion Matrix for Decision Tree",
+         x = "Predicted Class",
+         y = "Actual Class") +
+    theme_minimal(base_size = 14)
+} else {
+  print(paste("Shape mismatch between y_test and predictions!\n"))
+}
+```
+
+```{r}
+# Generate the confusion matrix
+conf_matrix <- confusionMatrix(factor(predictdt_y), factor(y_test), positive = "1")  # Adjust "1" as your positive class
+
+# Print the classification metrics
+cat("Classification Report:\n")
+print(conf_matrix$byClass)  # Metrics like Precision, Recall, F1-Score, etc.
+
+# Overall accuracy
+cat("Overall Accuracy:", conf_matrix$overall["Accuracy"], "\n")
+```
+
+```{r}
+# # Install necessary packages
+# install.packages("rpart")
+# install.packages("caret")
+# install.packages("ggplot2")
+# install.packages("reshape2")
+
+# Load libraries
+library(rpart)
+library(caret)
+library(ggplot2)
+library(reshape2)
+
+# Initialize and fit the Decision Tree model
+dt_model <- rpart(y_train ~ ., data = cbind(X_train, y_train), method = "class")
+
+# Predict on the test set
+predictdt_y <- predict(dt_model, X_test, type = "class")
+
+# Checking the shapes
+cat("y_test length:", length(y_test), "\n")
+cat("predictdt_y length:", length(predictdt_y), "\n")
+
+# Plot the confusion matrix if shapes match
+if (length(y_test) == length(predictdt_y)) {
+  # Generate the confusion matrix
+  cm <- confusionMatrix(factor(predictdt_y), factor(y_test), positive = "1")  # Adjust "1" as your positive class
+  
+  # Extract the confusion matrix table
+  cm_table <- as.data.frame(cm$table)
+  
+  # Create the confusion matrix heatmap
+  ggplot(data = cm_table, aes(x = Prediction, y = Reference, fill = Freq)) +
+    geom_tile(color = "black") +
+    geom_text(aes(label = Freq), color = "white", size = 5) +
+    scale_fill_gradient(low = "blue", high = "red") +
+    labs(title = "Confusion Matrix for Decision Tree",
+         x = "Predicted Class",
+         y = "Actual Class") +
+    theme_minimal(base_size = 14)
+} else {
+  cat("Shape mismatch between y_test and predictions!\n")
+}
+
+```
+
+```{r}
+library(caret)
+
+# Compute the confusion matrix and classification metrics
+conf_matrix <- confusionMatrix(factor(predictdt_y), factor(y_test), positive = "1")  # Adjust "1" to your positive class
+
+# Display the classification metrics
+cat("Classification Report:\n")
+cat("Precision:", conf_matrix$byClass["Precision"], "\n")
+cat("Recall:", conf_matrix$byClass["Recall"], "\n")
+cat("F1 Score:", conf_matrix$byClass["F1"], "\n")
+cat("Specificity:", conf_matrix$byClass["Specificity"], "\n")
+cat("Overall Accuracy:", conf_matrix$overall["Accuracy"], "\n")
+```
+# logistic Regression
+```{r}
+# Fit the logistic regression model
+lr_model <- glm(y_train ~ ., data = cbind(X_train, y_train), family = binomial)
+
+# Predict probabilities on the test set
+predict_lr_prob <- predict(lr_model, newdata = X_test, type = "response")
+
+# Convert probabilities to class labels (threshold = 0.5 by default)
+predict_lr_class <- ifelse(predict_lr_prob > 0.5, 1, 0)
+
+# Calculate accuracy
+accuracy_lr <- mean(predict_lr_class == y_test)
+
+# Print the accuracy
+cat("Logistic Regression accuracy is:", accuracy_lr, "\n")
+
+```
+
+```{r}
+
+# Predict probabilities on the test set
+predict_lr_prob <- predict(lr_model, newdata = X_test, type = "response")
+
+# Convert probabilities to class labels (threshold = 0.5 by default)
+predict_lr_class <- ifelse(predict_lr_prob > 0.5, 1, 0)
+
+# Generate the confusion matrix and classification report
+conf_matrix <- confusionMatrix(factor(predict_lr_class), factor(y_test), positive = "1")  # Adjust "1" for your positive class
+
+# Print the classification report
+cat("Classification Report:\n")
+cat("Precision:", conf_matrix$byClass["Precision"], "\n")
+cat("Recall:", conf_matrix$byClass["Recall"], "\n")
+cat("F1 Score:", conf_matrix$byClass["F1"], "\n")
+cat("Specificity:", conf_matrix$byClass["Specificity"], "\n")
+cat("Overall Accuracy:", conf_matrix$overall["Accuracy"], "\n")
+```
+
+```{r}
+# Predict probabilities and convert to class labels
+predict_lr_prob <- predict(lr_model, newdata = X_test, type = "response")
+predict_lr_class <- ifelse(predict_lr_prob > 0.5, 1, 0)
+
+# Generate the confusion matrix
+conf_matrix <- confusionMatrix(factor(predict_lr_class), factor(y_test), positive = "1")  # Adjust "1" for your positive class
+
+# Extract confusion matrix table as a data frame
+cm_table <- as.data.frame(conf_matrix$table)
+
+# Create the heatmap
+ggplot(data = cm_table, aes(x = Prediction, y = Reference, fill = Freq)) +
+  geom_tile(color = "black", linewidth = 0.5) +
+  geom_text(aes(label = Freq), color = "white", size = 5) +
+  scale_fill_gradient(low = "lightblue", high = "blue") +
+  labs(title = "LOGISTIC REGRESSION CONFUSION MATRIX",
+       x = "Predicted Class",
+       y = "Actual Class") +
+  theme_minimal(base_size = 14) +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+#Adaboost
+```{r}
+# Load the adabag library
+library(adabag)
+
+# Ensure the target variable (y_train) is a factor
+y_train <- as.factor(y_train)
+
+# Combine training data into a single data frame
+train_data <- data.frame(X_train, y_train)
+
+# Handle missing values in training data (if any)
+train_data <- na.omit(train_data)
+
+# Ensure all levels in X_train are present in X_test
+common_columns <- intersect(colnames(X_train), colnames(X_test))
+X_test <- X_test[, common_columns, drop = FALSE]
+train_data <- train_data[, c(common_columns, "y_train"), drop = FALSE]
+
+# Fit the AdaBoost model
+a_model <- boosting(y_train ~ ., data = train_data, boos = TRUE, mfinal = 50)
+
+# Make predictions on the test set
+a_preds <- predict(a_model, newdata = X_test)$class
+
+# Calculate accuracy
+accuracy_adaboost <- mean(a_preds == y_test)
+
+# Print the accuracy
+cat("AdaBoost Classifier accuracy:", accuracy_adaboost, "\n")
+
+```
+
+```{r}
+# Generate the confusion matrix
+conf_matrix <- confusionMatrix(factor(a_preds), factor(y_test), positive = "1")  # Adjust "1" to your positive class
+
+# Print the classification report
+cat("Classification Report:\n")
+cat("Precision:", conf_matrix$byClass["Precision"], "\n")
+cat("Recall:", conf_matrix$byClass["Recall"], "\n")
+cat("F1 Score:", conf_matrix$byClass["F1"], "\n")
+cat("Specificity:", conf_matrix$byClass["Specificity"], "\n")
+cat("Overall Accuracy:", conf_matrix$overall["Accuracy"], "\n")
+```
+
+```{r}
+# Generate the confusion matrix
+conf_matrix <- confusionMatrix(factor(a_preds), factor(y_test), positive = "1")  # Adjust "1" for your positive class
+
+# Extract confusion matrix table as a data frame
+cm_table <- as.data.frame(conf_matrix$table)
+
+# Create the heatmap
+ggplot(data = cm_table, aes(x = Prediction, y = Reference, fill = Freq)) +
+  geom_tile(color = "black", linewidth = 0.5) +  # Heatmap tiles with borders
+  geom_text(aes(label = Freq), color = "white", size = 5) +  # Add text annotations
+  scale_fill_gradient(low = "lightblue", high = "blue") +  # Color gradient
+  labs(title = "AdaBoost Classifier Confusion Matrix",
+       x = "Predicted Class",
+       y = "Actual Class") +
+  theme_minimal(base_size = 14) +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+#Gradient Boosting Classifier
+```{r}
+# Install and load necessary package
+#install.packages("gbm")
+library(gbm)
+
+# Combine training data
+train_data <- cbind(X_train, y_train)
+names(train_data)[ncol(train_data)] <- "y_train"
+
+# Train the Gradient Boosting model
+gb_model <- gbm(
+  formula = y_train ~ .,
+  data = train_data,
+  distribution = "bernoulli",
+  n.trees = 100,  # Number of trees
+  interaction.depth = 3,  # Depth of each tree
+  shrinkage = 0.01,  # Learning rate
+  cv.folds = 5  # Cross-validation folds
+)
+
+# Make predictions on the test set
+gb_pred_prob <- predict(gb_model, newdata = X_test, n.trees = 100, type = "response")
+gb_pred <- ifelse(gb_pred_prob > 0.5, 1, 0)
+
+# Calculate accuracy
+accuracy_gb <- mean(gb_pred == y_test)
+
+# Print accuracy
+cat("Gradient Boosting Classifier Accuracy:", accuracy_gb, "\n")
+
+```
+
+```{r}
+# Generate the confusion matrix
+conf_matrix <- confusionMatrix(factor(gb_pred), factor(y_test), positive = "1")  # Adjust "1" to your positive class
+
+# Print the classification report
+cat("Classification Report:\n")
+cat("Precision:", conf_matrix$byClass["Precision"], "\n")
+cat("Recall:", conf_matrix$byClass["Recall"], "\n")
+cat("F1 Score:", conf_matrix$byClass["F1"], "\n")
+cat("Specificity:", conf_matrix$byClass["Specificity"], "\n")
+cat("Overall Accuracy:", conf_matrix$overall["Accuracy"], "\n")
+```
+
+```{r}
+# Generate the confusion matrix
+conf_matrix <- confusionMatrix(factor(gb_pred), factor(y_test), positive = "1")  # Adjust "1" for your positive class
+
+# Extract confusion matrix table as a data frame
+cm_table <- as.data.frame(conf_matrix$table)
+
+# Create the heatmap
+ggplot(data = cm_table, aes(x = Prediction, y = Reference, fill = Freq)) +
+  geom_tile(color = "black", linewidth = 0.5) +  # Heatmap tiles with borders
+  geom_text(aes(label = Freq), color = "white", size = 5) +  # Add text annotations
+  scale_fill_gradient(low = "lightblue", high = "blue") +  # Color gradient
+  labs(title = "Gradient Boosting Classifier Confusion Matrix",
+       x = "Predicted Class",
+       y = "Actual Class") +
+  theme_minimal(base_size = 14) +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+# Install and load necessary packages
+# install.packages("pROC")
+# install.packages("ggplot2")
+# install.packages("caret")
+#install.packages("xgboost")  # For gradient boosting, if needed
+# Load necessary libraries
+library(pROC)
+library(ggplot2)
+
+# Initialize a list to store model predictions
+model_predictions <- list()
+
+# Decision Tree Probabilities
+dt_pred_prob <- predict(dt_model, X_test, type = "prob")[, 2]  # Extract probabilities for class "1"
+model_predictions[["Decision Tree"]] <- dt_pred_prob
+
+# Logistic Regression Probabilities
+predict_lr_prob <- predict(lr_model, newdata = X_test, type = "response")
+model_predictions[["Logistic Regression"]] <- predict_lr_prob
+
+# AdaBoost Probabilities
+a_pred_prob <- predict(a_model, newdata = X_test)$prob[, 2]  # Extract probabilities for class "1"
+model_predictions[["AdaBoost"]] <- a_pred_prob
+
+# Gradient Boosting Probabilities
+gb_pred_prob <- predict(gb_model, newdata = X_test, n.trees = 100, type = "response")
+model_predictions[["Gradient Boosting"]] <- gb_pred_prob
+
+# Compute ROC Curves and AUC for Each Model
+roc_curves <- lapply(model_predictions, function(prob) roc(y_test, prob, levels = rev(levels(as.factor(y_test)))))
+
+# Combine ROC data for plotting
+roc_data <- do.call(rbind, lapply(names(roc_curves), function(model) {
+  roc_curve <- roc_curves[[model]]
+  data.frame(
+    FPR = 1 - roc_curve$specificities,
+    TPR = roc_curve$sensitivities,
+    Model = model,
+    AUC = as.numeric(auc(roc_curve))
+  )
+}))
+
+# Plot ROC Curves
+ggplot(data = roc_data, aes(x = FPR, y = TPR, color = Model)) +
+  geom_line(size = 1.2) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray") +
+  labs(title = "ROC Curve Comparison for Churn Prediction Models",
+       x = "False Positive Rate",
+       y = "True Positive Rate") +
+  theme_minimal(base_size = 14) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  annotate("text", x = 0.7, y = 0.2, label = paste0("AUC Values:\n",
+                                                    paste(names(roc_curves), round(sapply(roc_curves, auc), 3), sep = ": ", collapse = "\n")))
+
+```
